@@ -33,7 +33,7 @@
 #define DEBUG 0
 
 #if defined(ESP32)
-#define LED_BUILTIN 4
+#define LED_BUILTIN 2
 #endif
 
 // template <typename... Args>

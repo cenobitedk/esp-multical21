@@ -257,7 +257,7 @@ void WaterMeter::receive(WMBusFrame *frame)
   // read preamble, should be 0x543D
   uint8_t p1 = readByteFromFifo();
   uint8_t p2 = readByteFromFifo();
-  Serial.printf("Preamble: %02x%02x\n\r", p1, p2);
+  //Serial.printf("Preamble: %02x%02x\n\r", p1, p2);
 
   uint8_t payloadLength = readByteFromFifo();
 

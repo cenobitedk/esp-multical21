@@ -22,7 +22,7 @@ WMBusFrame::WMBusFrame()
   aes128.setKey(key, sizeof(key));
 }
 
-void WMBusFrame::verify()
+void WMBusFrame::check()
 {
   // check meterId
   for (uint8_t i = 0; i < 4; i++)
@@ -37,15 +37,14 @@ void WMBusFrame::verify()
     }
   }
 
-  // TBD: check crc
   isValid = true;
 }
 
 void WMBusFrame::printMeterInfo(uint8_t *data, size_t len)
 {
   // init positions for compact frame
-  int pos_tt = 9;  // total consumption
-  int pos_tg = 13; // target consumption
+  int pos_tt = 9;  // total consumption, 9, 10, 11, 12
+  int pos_tg = 13; // target consumption 13, 14, 15, 16
   int pos_ic = 7;  // info codes
   int pos_ft = 17; // flow temp
   int pos_at = 18; // ambient temp
@@ -53,16 +52,47 @@ void WMBusFrame::printMeterInfo(uint8_t *data, size_t len)
   char mqttstring[25];
   char mqttjsondstring[100];
 
-  if (data[2] == 0x78) // long frame
+  // Serial.printf("Data: ");
+  // for(int k=0; k < len; k++) {
+  //   Serial.printf("%02x", data[k]);
+  // }
+  // Serial.printf("\n\r");
+
+  if (data[2] == 0x79) // compact frame
+  {
+    pos_ic = 7;
+    pos_tt = 9;
+    pos_tg = 13;
+    pos_ft = 17;
+    pos_at = 18;
+  }
+  else if (data[2] == 0x78) // long frame
   {
     // overwrite it with long frame positions
+    pos_ic = 6;
     pos_tt = 10;
     pos_tg = 16;
-    pos_ic = 6;
     // pos_ft = 23;
     // pos_at = 29;
     pos_ft = 22;
     pos_at = 25;
+  }
+  else
+    return;
+
+  uint16_t calc_crc = crc16_EN13757(data + 2, len - 2);
+  uint16_t read_crc = data[1] << 8 | data[0];
+  Serial.printf("calc_crc: 0x%04x\n\r", calc_crc);
+  Serial.printf("read_crc: 0x%04x\n\r", read_crc);
+
+  if (calc_crc == read_crc)
+  {
+    Serial.printf("CRC: OK\n\r");
+  }
+  else
+  {
+    Serial.printf("CRC: ERROR\n\r");
+    return;
   }
 
   char total[10];
@@ -138,8 +168,8 @@ void WMBusFrame::parse()
 
 bool WMBusFrame::decode()
 {
-  // check meterId, CRC
-  verify();
+  // check meterId
+  check();
   if (!isValid)
     return false;
 
@@ -183,8 +213,9 @@ bool WMBusFrame::decode()
     Serial.println();
   */
 
-  return true;
   // printMeterInfo(plaintext, cipherLength);
+
+  return true;
 }
 
 void WMBusFrame::resetValues()
@@ -194,4 +225,42 @@ void WMBusFrame::resetValues()
   values.temperature = 0;
   values.ambient_temperature = 0;
   values.infocode = 0;
+}
+
+uint16_t WMBusFrame::crc16_EN13757(uint8_t *data, size_t len)
+{
+  uint16_t crc = 0x0000;
+
+  assert(len == 0 || data != NULL);
+
+  for (size_t i = 0; i < len; ++i)
+  {
+    crc = crc16_EN13757_per_byte(crc, data[i]);
+  }
+
+  return (~crc);
+}
+
+#define CRC16_EN_13757 0x3D65
+
+uint16_t WMBusFrame::crc16_EN13757_per_byte(uint16_t crc, uint8_t b)
+{
+  unsigned char i;
+
+  for (i = 0; i < 8; i++)
+  {
+
+    if (((crc & 0x8000) >> 8) ^ (b & 0x80))
+    {
+      crc = (crc << 1) ^ CRC16_EN_13757;
+    }
+    else
+    {
+      crc = (crc << 1);
+    }
+
+    b <<= 1;
+  }
+
+  return crc;
 }
