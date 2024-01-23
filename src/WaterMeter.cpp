@@ -186,37 +186,34 @@ void GD0_ISR(void)
   packetAvailable = true;
 }
 
+// should be called frequently
 bool WaterMeter::isFrameAvailable(void)
 {
   return packetAvailable;
 }
 
-// should be called frequently, handles the ISR flag
-// does the frame checkin and decryption
-bool WaterMeter::getValues(Reading *reading)
+// should be called when a package is available,
+// handles the ISR flag, does the frame checkin and decryption
+bool WaterMeter::processFrame(Values *values)
 {
+  // double check frame available
   if (packetAvailable)
   {
-    // Serial.println("packet received");
     // Disable wireless reception interrupt
     detachInterrupt(digitalPinToInterrupt(CC1101_GDO0));
 
     // clear the flag
     packetAvailable = false;
 
+    // Prepare frame
     WMBusFrame frame;
 
-    receive(&frame);
+    this->receive(&frame);
 
     if (frame.isValid)
     {
-      reading->volume = frame.values.volume;
-      reading->target = frame.values.target;
-      reading->temperature = frame.values.temperature;
-      reading->ambient_temperature = frame.values.ambient_temperature;
+      *values = frame.values;
     }
-
-    frame.resetValues();
 
     // Enable wireless reception interrupt
     attachInterrupt(digitalPinToInterrupt(CC1101_GDO0), GD0_ISR, FALLING);
@@ -233,10 +230,11 @@ void WaterMeter::begin()
   SPI.begin();                 // Initialize SPI interface
   pinMode(CC1101_GDO0, INPUT); // Config GDO0 as input
 
-  reset(); // power on CC1101
+  // power on CC1101
+  reset();
 
-  // Serial.println("Setting CC1101 registers");
-  initializeRegisters(); // init CC1101 registers
+  // init CC1101 registers
+  initializeRegisters();
 
   cmdStrobe(CC1101_SCAL);
   delay(1);
@@ -257,11 +255,7 @@ void WaterMeter::receive(WMBusFrame *frame)
   // read preamble, should be 0x543D
   uint8_t p1 = readByteFromFifo();
   uint8_t p2 = readByteFromFifo();
-  //Serial.printf("Preamble: %02x%02x\n\r", p1, p2);
-
   uint8_t payloadLength = readByteFromFifo();
-
-  // Serial.printf("Length: %i (max: %i)\n\r", payloadLength, WMBusFrame::MAX_LENGTH);
 
   // is it Mode C1, frame B and does it fit in the buffer
   if ((payloadLength < WMBusFrame::MAX_LENGTH) && (p1 == 0x54) && (p2 == 0x3D))
@@ -275,24 +269,14 @@ void WaterMeter::receive(WMBusFrame *frame)
       frame->payload[i] = readByteFromFifo();
     }
 
-    // Serial.print(" FullFrame: ");
-    // for (int ii = 0; ii < payloadLength; ii++)
-    // {
-    //   Serial.printf("0x%02X, ", (int)(frame->payload[ii]));
-    // }
-    // Serial.println("");
-
-    Serial.printf("Manufacture code: %02X%02X", frame->payload[1], frame->payload[2]);
-    Serial.println("");
-
-    // do some checks: my meterId, crc ok
-    if (frame->decode())
+    if (frame->verifyId())
     {
-      frame->parse();
+      frame->decode();
+      frame->verifyCRC();
+      frame->getMeterValues();
     }
   }
 
   // flush RX fifo and restart receiver
   startReceiver();
-  // Serial.printf("rxStatus: 0x%02x\n\r", readStatusReg(CC1101_RXBYTES));
 }

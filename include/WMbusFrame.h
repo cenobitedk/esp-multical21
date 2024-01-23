@@ -7,7 +7,7 @@
 #include <CTR.h>
 #include "credentials.h"
 
-struct Reading
+struct Values
 {
   uint32_t volume;
   uint32_t target;
@@ -19,24 +19,29 @@ struct Reading
 class WMBusFrame
 {
 public:
-  static const uint8_t MAX_LENGTH = 127;
+  static const uint8_t MAX_LENGTH = 128;
 
 private:
   CTR<AESSmall128> aes128;
   uint8_t cipher[MAX_LENGTH];
   uint8_t plaintext[MAX_LENGTH];
   uint8_t iv[16];
-  void check(void);
-  void printMeterInfo(uint8_t *data, size_t len);
+  // void printMeterInfo(uint8_t *data, size_t len);
   uint16_t crc16_EN13757_per_byte(uint16_t crc, uint8_t b);
   uint16_t crc16_EN13757(uint8_t *data, size_t len);
 
 public:
-  // check frame and decrypt it
+  // verify meter id
+  bool verifyId(void);
+
+  // decrypt frame
   bool decode(void);
 
+  // verify payload CRC
+  void verifyCRC();
+
   // get values from decrypted frame
-  void parse();
+  void getMeterValues();
 
   // true, if meter information is valid for the last received frame
   bool isValid = false;
@@ -48,7 +53,7 @@ public:
   uint8_t payload[MAX_LENGTH];
 
   // parsed payload data
-  Reading values;
+  Values values;
 
   void resetValues();
 

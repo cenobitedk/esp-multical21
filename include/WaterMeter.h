@@ -223,7 +223,7 @@ public:
   // must be called frequently, returns true if a valid frame was received
   bool isFrameAvailable(void);
 
-  bool getValues(Reading *reading);
+  bool processFrame(Values *values);
 };
 
 #endif // _WATERMETER_H_

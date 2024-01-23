@@ -20,6 +20,7 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #endif
+
 #include <PubSubClient.h>
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
@@ -57,15 +58,8 @@ int getWifiToConnect(int numSsid)
 {
   for (int i = 0; i < NUM_SSID_CREDENTIALS; i++)
   {
-    // Serial.println(WiFi.SSID(i));
-
     for (int j = 0; j < numSsid; ++j)
     {
-      /*Serial.print(j);
-      Serial.print(": ");
-      Serial.print(WiFi.SSID(i).c_str());
-      Serial.print(" = ");
-      Serial.println(credentials[j][0]);*/
       if (strcmp(WiFi.SSID(j).c_str(), credentials[i][0]) == 0)
       {
         Serial.println("Credentials found for: ");
@@ -184,12 +178,26 @@ String mqttGetTopic(String extension)
 {
   char topic[64];
   sprintf(topic, "water-meter/0x%08X/%s", meter_id, extension.c_str());
+  return topic;
+}
 
+String mqttGetAutoDiscoveryTopic(String extension)
+{
+  char topic[80];
+  sprintf(topic, "homeassistant/sensor/0x%08X/%s/config", meter_id, extension.c_str());
+  return topic;
+}
+
+String mqttGetUniqueId(String extension)
+{
+  char topic[32];
+  sprintf(topic, "0x%08X_%s", meter_id, extension.c_str());
   return topic;
 }
 
 bool mqttConnect()
 {
+  mqttClient.setBufferSize(768);
   mqttClient.setServer(credentials[cred][2], 1883);
   mqttClient.setCallback(mqttCallback);
 
@@ -199,7 +207,6 @@ bool mqttConnect()
   state["state"] = "offline";
   state["ip_address"] = "";
 
-  // String jsonState = "{\"state\":\"offline\",\"ip_address\":\"\"}";
   String jsonState;
   serializeJson(state, jsonState);
 
@@ -209,28 +216,158 @@ bool mqttConnect()
 
 void mqttPublishOnlineState()
 {
+  String topic = mqttGetTopic("state");
+
   // get ip address
   IPAddress MyIP = WiFi.localIP();
   char ip[16];
   snprintf(ip, 16, "%d.%d.%d.%d", MyIP[0], MyIP[1], MyIP[2], MyIP[3]);
 
   // prepare json state
-  char jsonState[50];
-  snprintf(jsonState,
-           sizeof(jsonState),
-           "{\"state\":\"online\",\"ip_address\":\"%s\"}",
-           ip);
+  DynamicJsonDocument state(64);
+  state["state"] = "online";
+  state["ip_address"] = ip;
 
-  String topic = mqttGetTopic("state");
+  String jsonState;
+  serializeJson(state, jsonState);
 
   // publish state
-  mqttClient.publish(topic.c_str(), jsonState, true);
+  mqttClient.publish(topic.c_str(), jsonState.c_str(), true);
 }
 
-void mqttPublishState(Reading *values)
+void mqttPublishAutoDiscoveryVolume()
+{
+  // Prepare volume payload.
+  StaticJsonDocument<640> volume;
+  volume["availability"][0]["topic"] = mqttGetTopic("state");
+  volume["availability"][0]["value_template"] = "{{ value_json.state }}";
+  volume["device"]["identifiers"][0] = "mc21";
+  volume["device"]["manufacturer"] = "Kamstrup";
+  volume["device"]["model"] = "Multical 21";
+  volume["device"]["name"] = "water-meter";
+  volume["device_class"] = "water";
+  volume["name"] = "volume";
+  volume["state_class"] = "total_increasing";
+  volume["state_topic"] = mqttGetTopic("sensor/state");
+  volume["unique_id"] = mqttGetUniqueId("volume");
+  volume["unit_of_measurement"] = "m³";
+  volume["value_template"] = "{{ value_json.volume }}";
+
+  String volumePayload;
+  serializeJson(volume, volumePayload);
+  String topic = mqttGetAutoDiscoveryTopic("volume");
+
+  mqttClient.publish(topic.c_str(), volumePayload.c_str(), true);
+}
+
+void mqttPublishAutoDiscoveryTarget()
+{
+  // Prepare target payload.
+  StaticJsonDocument<640> target;
+  target["availability"][0]["topic"] = mqttGetTopic("state");
+  target["availability"][0]["value_template"] = "{{ value_json.state }}";
+  target["device"]["identifiers"][0] = "mc21";
+  target["device"]["manufacturer"] = "Kamstrup";
+  target["device"]["model"] = "Multical 21";
+  target["device"]["name"] = "water-meter";
+  target["device_class"] = "water";
+  target["name"] = "target";
+  target["state_class"] = "total";
+  target["state_topic"] = mqttGetTopic("sensor/state");
+  target["unique_id"] = mqttGetUniqueId("target");
+  target["unit_of_measurement"] = "m³";
+  target["value_template"] = "{{ value_json.target }}";
+
+  String targetPayload;
+  serializeJson(target, targetPayload);
+  String topic = mqttGetAutoDiscoveryTopic("target");
+
+  mqttClient.publish(topic.c_str(), targetPayload.c_str(), true);
+}
+
+void mqttPublishAutoDiscoveryTemperature()
+{
+  // Prepare temperature payload.
+  StaticJsonDocument<640> temperature;
+  temperature["availability"][0]["topic"] = mqttGetTopic("state");
+  temperature["availability"][0]["value_template"] = "{{ value_json.state }}";
+  temperature["device"]["identifiers"][0] = "mc21";
+  temperature["device"]["manufacturer"] = "Kamstrup";
+  temperature["device"]["model"] = "Multical 21";
+  temperature["device"]["name"] = "water-meter";
+  temperature["device_class"] = "temperature";
+  temperature["name"] = "temperature";
+  temperature["state_class"] = "measurement";
+  temperature["state_topic"] = mqttGetTopic("sensor/state");
+  temperature["unique_id"] = mqttGetUniqueId("temperature");
+  temperature["unit_of_measurement"] = "°C";
+  temperature["value_template"] = "{{ value_json.temp }}";
+
+  String temperaturePayload;
+  serializeJson(temperature, temperaturePayload);
+  String topic = mqttGetAutoDiscoveryTopic("temperature");
+
+  mqttClient.publish(topic.c_str(), temperaturePayload.c_str(), true);
+}
+
+void mqttPublishAutoDiscoveryAmbientTemperature()
+{
+  // Prepare ambient temperature payload.
+  StaticJsonDocument<640> ambient_temperature;
+  ambient_temperature["availability"][0]["topic"] = mqttGetTopic("state");
+  ambient_temperature["availability"][0]["value_template"] = "{{ value_json.state }}";
+  ambient_temperature["device"]["identifiers"][0] = "mc21";
+  ambient_temperature["device"]["manufacturer"] = "Kamstrup";
+  ambient_temperature["device"]["model"] = "Multical 21";
+  ambient_temperature["device"]["name"] = "water-meter";
+  ambient_temperature["device_class"] = "temperature";
+  ambient_temperature["name"] = "ambient temperature";
+  ambient_temperature["state_class"] = "measurement";
+  ambient_temperature["state_topic"] = mqttGetTopic("sensor/state");
+  ambient_temperature["unique_id"] = mqttGetUniqueId("ambient_temperature");
+  ambient_temperature["unit_of_measurement"] = "°C";
+  ambient_temperature["value_template"] = "{{ value_json.ambient_temp }}";
+
+  String ambientTemperaturePayload;
+  serializeJson(ambient_temperature, ambientTemperaturePayload);
+  String topic = mqttGetAutoDiscoveryTopic("ambient_temperature");
+
+  mqttClient.publish(topic.c_str(), ambientTemperaturePayload.c_str(), true);
+}
+
+void mqttPublishAutoDiscovery()
+{
+  mqttPublishAutoDiscoveryVolume();
+  mqttPublishAutoDiscoveryTarget();
+  mqttPublishAutoDiscoveryTemperature();
+  mqttPublishAutoDiscoveryAmbientTemperature();
+}
+
+void mqttPublishState(Values *values)
 {
   String topic = mqttGetTopic("sensor/state");
 
+  char json[100];
+  snprintf(json,
+           sizeof(json),
+           "{\"volume\":%d.%03d,\"target\":%d.%03d,\"temp\":%2d,\"ambient_temp\":%2d,\"info_code\":%4X}",
+           values->volume / 1000,
+           values->volume % 1000,
+           values->target / 1000,
+           values->target % 1000,
+           values->temperature,
+           values->ambient_temperature,
+           values->infocode);
+
+  mqttClient.publish(topic.c_str(), json, true);
+}
+
+void mqttSubscribe()
+{
+}
+
+void logValues(Values *values)
+{
   Serial.printf("Meter ID: 0x%08X", meter_id);
   Serial.println("");
 
@@ -244,55 +381,6 @@ void mqttPublishState(Reading *values)
   Serial.println("");
   Serial.printf("  info code: %04X", values->infocode);
   Serial.println("");
-
-  DynamicJsonDocument state(1024);
-  state["volume"] = (float)values->volume / 1000;
-  state["target"] = (float)values->target / 1000;
-  state["temp"] = values->temperature;
-  state["ambient_temp"] = values->ambient_temperature;
-
-  String jsonString;
-  serializeJson(state, Serial);
-  serializeJson(state, jsonString);
-
-  // char mqttjsondstring[100];
-  // snprintf(mqttjsondstring,
-  //          sizeof(mqttjsondstring),
-  //          "{\"volume\":%d.%03d,\"target\":%d.%03d,\"temp\":%2d,\"ambient_temp\":%2d}",
-  //          values->volume / 1000,
-  //          values->volume % 1000,
-  //          values->target / 1000,
-  //          values->target % 1000,
-  //          values->temperature,
-  //          values->ambient_temperature);
-
-  mqttClient.publish(topic.c_str(), jsonString.c_str(), true);
-}
-
-void mqttSubscribe()
-{
-  String s;
-
-  // // publish online status
-  // s = "water-meter/0/online";
-  // mqttClient.publish(s.c_str(), "True", true);
-  // Serial.print("MQTT-SEND: ");
-  // Serial.print(s);
-  // Serial.println(" True");
-
-  // // publish ip address
-  // s = "water-meter/0/ipaddr";
-  // IPAddress MyIP = WiFi.localIP();
-  // snprintf(MyIp, 16, "%d.%d.%d.%d", MyIP[0], MyIP[1], MyIP[2], MyIP[3]);
-  // mqttClient.publish(s.c_str(), MyIp, true);
-  // Serial.print("MQTT-SEND: ");
-  // Serial.print(s);
-  // Serial.print(" ");
-  // Serial.println(MyIp);
-
-  // if True -> perform an reset
-  s = "espmeter/reset";
-  mqttClient.subscribe(s.c_str());
 }
 
 void setupOTA()
@@ -337,13 +425,14 @@ void waterMeterLoop()
 {
   if (waterMeter.isFrameAvailable())
   {
-    Reading reading;
+    Values values;
 
-    bool success = waterMeter.getValues(&reading);
+    bool success = waterMeter.processFrame(&values);
 
     if (success)
     {
-      mqttPublishState(&reading);
+      logValues(&values);
+      mqttPublishState(&values);
     }
   }
 }
@@ -380,7 +469,6 @@ void loop()
   switch (ControlState)
   {
   case StateInit:
-    // Serial.println("StateInit:");
     WiFi.mode(WIFI_STA);
 
     setMeterID();
@@ -389,14 +477,11 @@ void loop()
     break;
 
   case StateNotConnected:
-    // Serial.println("StateNotConnected:");
 
     ControlState = StateWifiConnect;
     break;
 
   case StateWifiConnect:
-    // Serial.println("StateWifiConnect:");
-    //  station mode
     ConnectWifi();
 
     delay(500);
@@ -416,7 +501,7 @@ void loop()
     else
     {
       Serial.println("");
-      Serial.println("Connection failed.");
+      Serial.println("Wifi connection failed.");
 
       // try again
       ControlState = StateNotConnected;
@@ -433,7 +518,7 @@ void loop()
     if (WiFi.status() != WL_CONNECTED)
     {
       ControlState = StateNotConnected;
-      break; // exit (hopefully) switch statement
+      break;
     }
 
     Serial.print("try to connect to MQTT server ");
@@ -468,29 +553,30 @@ void loop()
       // mqttSubscribe();
 
       mqttPublishOnlineState();
+      mqttPublishAutoDiscovery();
 
       ControlState = StateOperating;
       digitalWrite(LED_BUILTIN, LOW); // on
       Serial.println("StateOperating:");
-      // mqttDebug("up and running");
     }
     ArduinoOTA.handle();
 
     break;
 
   case StateOperating:
-    // Serial.println("StateOperating:");
 
     if (WiFi.status() != WL_CONNECTED)
     {
+      Serial.println("lost wifi connection");
       ControlState = StateWifiConnect;
-      break; // exit (hopefully switch statement)
+      break;
     }
 
     if (!mqttClient.connected())
     {
-      Serial.println("not connected to MQTT server");
+      Serial.println("lost connection to MQTT server");
       ControlState = StateMqttConnect;
+      break;
     }
 
     // here we go
